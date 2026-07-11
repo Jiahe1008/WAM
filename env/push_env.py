@@ -37,7 +37,7 @@ class PushEnv:
         self.step_count = 0
 
         self.target_xy = self.rng.uniform(
-            low=np.array([0.45, -0.6]),high=np.array([0.95, 0.6])).astype(np.float32)
+            low=np.array([0.3, -0.6]),high=np.array([0.95, 0.6])).astype(np.float32)
 
         object_xy = self.rng.uniform(
             low=np.array([-0.3, -0.5]),high=np.array([0.2, 0.5])).astype(np.float32)

@@ -31,8 +31,8 @@ all_dones = []
 all_episode_ids = []
 all_step_ids = []
 all_instruction_ids = []
-MAX_STEP = 500
-SAVED_EPISODE = 5
+MAX_STEP = 1000
+SAVED_EPISODE = 800
 saved_episode_id = 0
 env = PushEnv(seed=0)
 
@@ -104,8 +104,12 @@ def main():
     step_ids = np.array(all_step_ids, dtype=np.int64)
     instruction_ids = np.array(all_instruction_ids, dtype=np.int64)
 
+    save_dir = os.path.join(project_root, "data")
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, "trajectories.npz")
+
     np.savez_compressed(
-        "../data/trajectories.npz",
+        save_path,
         states=states,
         actions=actions,
         next_states=next_states,

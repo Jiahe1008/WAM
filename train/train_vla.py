@@ -29,11 +29,11 @@ def split_by_episode(data, train_ratio=0.8, seed=0):
     return train_mask, val_mask
 
 def main():
-    data_path = os.path.join(project_root, "data", "trajetories.npz")
+    data_path = os.path.join(project_root, "data", "trajectories.npz")
     data = np.load(data_path)
 
-    state = data["state"]
-    action = data["action"]
+    state = data["states"]
+    action = data["actions"]
 
     train_mask, val_mask = split_by_episode(data)
     train_states = state[train_mask]
