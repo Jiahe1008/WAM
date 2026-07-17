@@ -5,7 +5,7 @@ import numpy as np
 def main():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.join(current_dir, "..")
-    data_path = os.path.join(project_root, "data", "trajectories.npz")
+    data_path = os.path.join(project_root, "data", "trajectories_hard_random_physics.npz")
 
     data = np.load(data_path)
 
@@ -59,6 +59,11 @@ def main():
 
     print("state min:", states.min(axis=0))
     print("state max:", states.max(axis=0))
+    object_target_dist = np.linalg.norm(states[:, 2:4] - states[:, 6:8], axis=1)
+    print("object-target distance:")
+    print("  min:", object_target_dist.min())
+    print("  max:", object_target_dist.max())
+    print("  mean:", object_target_dist.mean())
 
     print("action min:", actions.min(axis=0))
     print("action max:", actions.max(axis=0))

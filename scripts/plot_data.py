@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 def main():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.join(current_dir, "..")
-    data_path = os.path.join(project_root, "data", "trajectories.npz")
+    data_path = os.path.join(project_root, "data", "trajectories_hard_random_physics.npz")
 
     data = np.load(data_path)
 
@@ -36,7 +36,7 @@ def main():
         plt.legend()
         plt.grid(True)
         
-        target_radius = 0.16
+        target_radius = 0.10
         circle = plt.Circle(
             target_xy,
             target_radius,

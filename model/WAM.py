@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class WAM(nn.Module):
-    def __init__(self, hidden_dim=64, state_dim=10, action_dim=2):
+    def __init__(self, hidden_dim=64, state_dim=10, action_dim=2, force_dim=2):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
@@ -23,6 +23,12 @@ class WAM(nn.Module):
             nn.ReLU(),
             nn.Linear(hidden_dim, state_dim)
         )
+        self.force_head = nn.Sequential(
+            nn.Linear(hidden_dim + action_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, force_dim)
+        )
+
     def forward(self, state, action):
         hidden_state = self.net(state)
         pred_action = self.action_head(hidden_state)
@@ -32,4 +38,5 @@ class WAM(nn.Module):
         world_input = torch.cat([hidden_state, action], dim=1)
         delta_pred_state = self.state_head(world_input) 
         pred_next_state = state + delta_pred_state
-        return pred_action, pred_next_state
+        pred_contact_force = self.force_head(world_input)
+        return pred_action, pred_next_state, pred_contact_force

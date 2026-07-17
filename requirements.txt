@@ -1,0 +1,5 @@
+numpy
+torch
+mujoco
+matplotlib
+python-docx

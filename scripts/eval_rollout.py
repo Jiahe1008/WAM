@@ -18,6 +18,13 @@ from model.WAM import WAM
 PUSHER_RADIUS = 0.06
 OBJECT_RADIUS = 0.08
 MIN_CONTACT_DIST = PUSHER_RADIUS + OBJECT_RADIUS
+TARGET_RADIUS = 0.10
+HARD_TARGET_LOW = (0.55, -0.95)
+HARD_TARGET_HIGH = (1.05, 0.95)
+HARD_OBJECT_LOW = (-0.85, -0.85)
+HARD_OBJECT_HIGH = (0.10, 0.85)
+HARD_MIN_OBJECT_TARGET_DIST = 0.75
+HARD_PUSHER_BACKOFF = 0.32
 
 
 def load_checkpoint(path, device):
@@ -97,7 +104,7 @@ def wam_rollout(model, initial_state, actions, state_mean, state_std, device):
             action_tensor = torch.tensor(
                 action, dtype=torch.float32, device=device
             ).unsqueeze(0)
-            _, norm_next_state = model(norm_state, action_tensor)
+            _, norm_next_state, _ = model(norm_state, action_tensor)
 
             real_next_state = (
                 norm_next_state.squeeze(0) * state_std + state_mean
@@ -196,26 +203,37 @@ def select_rollout_cases(data, horizon, num_rollouts, seed):
     return cases
 
 
-def plot_rollout(true_states, pred_states, case_name, output_dir):
+def plot_rollout(true_states, pred_states, case_name, output_dir, target_radius=TARGET_RADIUS):
     os.makedirs(output_dir, exist_ok=True)
 
-    plt.figure(figsize=(7, 6))
-    plt.plot(true_states[:, 0], true_states[:, 1], "b-", label="MuJoCo pusher")
-    plt.plot(true_states[:, 2], true_states[:, 3], "r-", label="MuJoCo object")
-    plt.plot(pred_states[:, 0], pred_states[:, 1], "b--", label="WAM pusher")
-    plt.plot(pred_states[:, 2], pred_states[:, 3], "r--", label="WAM object")
-    plt.scatter(true_states[0, 6], true_states[0, 7], marker="x", c="g", label="target")
-    plt.axis("equal")
-    plt.grid(True)
-    plt.xlabel("x")
-    plt.ylabel("y")
-    plt.title(case_name)
-    plt.legend()
-    plt.tight_layout()
+    fig, ax = plt.subplots(figsize=(7, 6))
+    target_xy = true_states[0, 6:8]
+    target_circle = plt.Circle(
+        target_xy,
+        target_radius,
+        fill=False,
+        linestyle="--",
+        edgecolor="g",
+        label="target radius",
+    )
+
+    ax.add_patch(target_circle)
+    ax.plot(true_states[:, 0], true_states[:, 1], "b-", label="MuJoCo pusher")
+    ax.plot(true_states[:, 2], true_states[:, 3], "r-", label="MuJoCo object")
+    ax.plot(pred_states[:, 0], pred_states[:, 1], "b--", label="WAM pusher")
+    ax.plot(pred_states[:, 2], pred_states[:, 3], "r--", label="WAM object")
+    ax.scatter(target_xy[0], target_xy[1], marker="x", c="g", label="target")
+    ax.axis("equal")
+    ax.grid(True)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_title(case_name)
+    ax.legend()
+    fig.tight_layout()
 
     save_path = os.path.join(output_dir, f"{case_name}.png")
-    plt.savefig(save_path, dpi=160)
-    plt.close()
+    fig.savefig(save_path, dpi=160)
+    plt.close(fig)
     return save_path
 
 
@@ -232,9 +250,9 @@ def aggregate_metrics(all_metrics):
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate WAM open-loop rollout.")
-    parser.add_argument("--checkpoint", default=os.path.join(project_root, "checkpoints", "wam.pt"))
-    parser.add_argument("--data", default=os.path.join(project_root, "data", "trajectories.npz"))
-    parser.add_argument("--output-dir", default=os.path.join(project_root, "outputs", "rollout"))
+    parser.add_argument("--checkpoint", default=os.path.join(project_root, "checkpoints", "wam_hard_random_physics_force.pt"))
+    parser.add_argument("--data", default=os.path.join(project_root, "data", "trajectories_hard_random_physics.npz"))
+    parser.add_argument("--output-dir", default=os.path.join(project_root, "outputs", "rollout_hard_random_physics_force"))
     parser.add_argument("--horizon", type=int, default=50)
     parser.add_argument("--num-rollouts", type=int, default=5)
     parser.add_argument("--hidden-dim", type=int, default=32)
@@ -245,14 +263,24 @@ def main():
     checkpoint = load_checkpoint(args.checkpoint, device)
 
     model = WAM(hidden_dim=args.hidden_dim, state_dim=10, action_dim=2).to(device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    model.load_state_dict(checkpoint["model_state_dict"], strict=False)
 
     state_mean = checkpoint["state_mean"]
     state_std = checkpoint["state_std"]
 
     data = np.load(args.data)
     cases = select_rollout_cases(data, args.horizon, args.num_rollouts, args.seed)
-    env = PushEnv(max_step=args.horizon + 5, seed=args.seed)
+    env = PushEnv(
+        max_step=args.horizon + 5,
+        seed=args.seed,
+        target_radius=TARGET_RADIUS,
+        target_low=HARD_TARGET_LOW,
+        target_high=HARD_TARGET_HIGH,
+        object_low=HARD_OBJECT_LOW,
+        object_high=HARD_OBJECT_HIGH,
+        min_object_target_dist=HARD_MIN_OBJECT_TARGET_DIST,
+        pusher_backoff=HARD_PUSHER_BACKOFF,
+    )
 
     horizons = [h for h in (10, 20, 50) if h <= args.horizon]
     all_metrics = []

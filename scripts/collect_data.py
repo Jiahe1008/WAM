@@ -23,6 +23,17 @@ sys.path.append(project_root)
 import numpy as np
 from env.push_env import PushEnv
 
+DATA_FILENAME = "trajectories_hard_random_physics.npz"
+MASS_RANGE = (0.1, 0.5)
+FRICTION_RANGE = (0.25, 0.9)
+TARGET_RADIUS = 0.10
+TARGET_LOW = (0.55, -0.95)
+TARGET_HIGH = (1.05, 0.95)
+OBJECT_LOW = (-0.85, -0.85)
+OBJECT_HIGH = (0.10, 0.85)
+MIN_OBJECT_TARGET_DIST = 0.75
+PUSHER_BACKOFF = 0.32
+
 all_states = []
 all_actions = []
 all_next_states = []
@@ -31,10 +42,27 @@ all_dones = []
 all_episode_ids = []
 all_step_ids = []
 all_instruction_ids = []
-MAX_STEP = 1000
+MAX_STEP = 1500
 SAVED_EPISODE = 800
 saved_episode_id = 0
-env = PushEnv(seed=0)
+env = PushEnv(
+    max_step=MAX_STEP,
+    seed=0,
+    target_radius=TARGET_RADIUS,
+    target_low=TARGET_LOW,
+    target_high=TARGET_HIGH,
+    object_low=OBJECT_LOW,
+    object_high=OBJECT_HIGH,
+    min_object_target_dist=MIN_OBJECT_TARGET_DIST,
+    pusher_backoff=PUSHER_BACKOFF,
+)
+rng = np.random.default_rng(0)
+
+
+def sample_physics():
+    mass = rng.uniform(MASS_RANGE[0], MASS_RANGE[1])
+    friction = rng.uniform(FRICTION_RANGE[0], FRICTION_RANGE[1])
+    return mass, friction
 
 def expert_action(state):
     """启发式专家策略：先到物体后方，再推向目标"""
@@ -60,11 +88,15 @@ def run():
     global saved_episode_id
     episode_data = []
     state = env.reset()
+    mass, friction = sample_physics()
+    env.set_physics(mass=mass, friction=friction)
+    state = env.get_state()
+
     for step in range(MAX_STEP):
         action = expert_action(state)
 
         # (10,), float, bool, {"success":bool, "distance":float}
-        noise = np.random.normal(0.0, 0.04, size=2)
+        noise = rng.normal(0.0, 0.04, size=2)
         action = np.clip(action + noise, -1.0, 1.0)
         next_state, reward, done, info = env.step(action)  
         episode_data.append((state, action, next_state, reward, done, step))
@@ -84,13 +116,26 @@ def run():
             all_step_ids.append(step_id)
             all_instruction_ids.append(0)
 
-        print(f"saved episode {saved_episode_id}, length={len(episode_data)}")
+        print(
+            f"saved episode {saved_episode_id}, length={len(episode_data)}, "
+            f"mass={mass:.3f}, friction={friction:.3f}"
+        )
         saved_episode_id += 1
     else:
-        print(f"failed episode, length={len(episode_data)}, final_dist={info['distance']:.3f}")
+        print(
+            f"failed episode, length={len(episode_data)}, "
+            f"mass={mass:.3f}, friction={friction:.3f}, "
+            f"final_dist={info['distance']:.3f}"
+        )
         
 
 def main():
+    save_dir = os.path.join(project_root, "data")
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, DATA_FILENAME)
+    if os.path.exists(save_path):
+        raise FileExistsError(f"{save_path} already exists; refusing to overwrite it.")
+
     print(f"collecting data of {SAVED_EPISODE} trajetories")
     while(saved_episode_id < SAVED_EPISODE):
         run()
@@ -104,10 +149,6 @@ def main():
     step_ids = np.array(all_step_ids, dtype=np.int64)
     instruction_ids = np.array(all_instruction_ids, dtype=np.int64)
 
-    save_dir = os.path.join(project_root, "data")
-    os.makedirs(save_dir, exist_ok=True)
-    save_path = os.path.join(save_dir, "trajectories.npz")
-
     np.savez_compressed(
         save_path,
         states=states,
@@ -120,11 +161,13 @@ def main():
         instruction_ids=instruction_ids,
     )
 
-    print("saved data to ../data/trajectories.npz")
+    print(f"saved data to ../data/{DATA_FILENAME}")
     print("states:", states.shape)
     print("actions:", actions.shape)
     print("next_states:", next_states.shape)
     print("episodes:", len(np.unique(episode_ids)))
+    print("mass range:", states[:, 8].min(), states[:, 8].max())
+    print("friction range:", states[:, 9].min(), states[:, 9].max())
 
 if __name__ == "__main__":
     main()

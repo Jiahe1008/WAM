@@ -3,7 +3,19 @@ import numpy as np
 import mujoco
 
 class PushEnv:
-    def __init__(self, xml_path=None, max_step=300, seed=42):
+    def __init__(
+        self,
+        xml_path=None,
+        max_step=300,
+        seed=42,
+        target_radius=0.16,
+        target_low=None,
+        target_high=None,
+        object_low=None,
+        object_high=None,
+        min_object_target_dist=0.0,
+        pusher_backoff=0.25,
+    ):
         if xml_path is None:
             current_dir = os.path.dirname(os.path.abspath(__file__))
             xml_path = os.path.join(current_dir, "push_env.xml")
@@ -15,8 +27,26 @@ class PushEnv:
         self.step_count = 0
         self.rng = np.random.default_rng(seed)
 
-        self.target_radius = 0.16
+        self.target_radius = target_radius
         self.target_xy = np.array([0.8, 0.5], dtype=np.float32)
+        self.target_low = np.array(
+            [0.3, -0.6] if target_low is None else target_low,
+            dtype=np.float32,
+        )
+        self.target_high = np.array(
+            [0.95, 0.6] if target_high is None else target_high,
+            dtype=np.float32,
+        )
+        self.object_low = np.array(
+            [-0.3, -0.5] if object_low is None else object_low,
+            dtype=np.float32,
+        )
+        self.object_high = np.array(
+            [0.2, 0.5] if object_high is None else object_high,
+            dtype=np.float32,
+        )
+        self.min_object_target_dist = min_object_target_dist
+        self.pusher_backoff = pusher_backoff
 
         self.pusher_body_id = mujoco.mj_name2id(
             self.model, mujoco.mjtObj.mjOBJ_BODY, "pusher")
@@ -24,6 +54,8 @@ class PushEnv:
             self.model, mujoco.mjtObj.mjOBJ_BODY, "object")
         self.object_joint_id = mujoco.mj_name2id(
             self.model, mujoco.mjtObj.mjOBJ_JOINT, "object_free")
+        self.target_geom_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_GEOM, "target")
 
         self.object_qpos_adr = self.model.jnt_qposadr[self.object_joint_id]
         self.object_qvel_adr = self.model.jnt_dofadr[self.object_joint_id]
@@ -32,20 +64,60 @@ class PushEnv:
         self.current_mass = 0.2
         self.current_friction = 0.6
 
+    def set_physics(self, mass=None, friction=None):
+        if mass is not None:
+            self.current_mass = float(mass)
+        if friction is not None:
+            self.current_friction = float(friction)
+
+        object_geom_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_GEOM, "object_geom"
+        )
+        if object_geom_id >= 0:
+            self.model.geom_friction[object_geom_id, 0] = self.current_friction
+
+        if self.object_body_id >= 0:
+            self.model.body_mass[self.object_body_id] = self.current_mass
+
+        mujoco.mj_forward(self.model, self.data)
+
     def reset(self):
         mujoco.mj_resetData(self.model, self.data)
         self.step_count = 0
 
-        self.target_xy = self.rng.uniform(
-            low=np.array([0.3, -0.6]),high=np.array([0.95, 0.6])).astype(np.float32)
-
-        object_xy = self.rng.uniform(
-            low=np.array([-0.3, -0.5]),high=np.array([0.2, 0.5])).astype(np.float32)
+        best_target_xy = None
+        best_object_xy = None
+        best_dist = -np.inf
+        for _ in range(100):
+            target_xy = self.rng.uniform(
+                low=self.target_low,
+                high=self.target_high,
+            ).astype(np.float32)
+            object_xy = self.rng.uniform(
+                low=self.object_low,
+                high=self.object_high,
+            ).astype(np.float32)
+            dist = np.linalg.norm(target_xy - object_xy)
+            if dist > best_dist:
+                best_target_xy = target_xy
+                best_object_xy = object_xy
+                best_dist = dist
+            if dist >= self.min_object_target_dist:
+                self.target_xy = target_xy
+                break
+        else:
+            self.target_xy = best_target_xy
+            object_xy = best_object_xy
         
         push_dir = self.target_xy - object_xy
         push_dir = push_dir / (np.linalg.norm(push_dir) + 1e-6)
 
-        pusher_xy = object_xy - push_dir * 0.25
+        pusher_xy = object_xy - push_dir * self.pusher_backoff
+
+        if self.target_geom_id >= 0:
+            self.model.geom_pos[self.target_geom_id, 0] = self.target_xy[0]
+            self.model.geom_pos[self.target_geom_id, 1] = self.target_xy[1]
+            self.model.geom_size[self.target_geom_id, 0] = self.target_radius
 
         qpos_adr = self.object_qpos_adr
         self.data.qpos[qpos_adr + 0] = object_xy[0]
@@ -63,6 +135,7 @@ class PushEnv:
         self.data.mocap_pos[self.pusher_mocap_id][1] = pusher_xy[1]
         self.data.mocap_pos[self.pusher_mocap_id][2] = 0.07
 
+        self.set_physics(self.current_mass, self.current_friction)
         mujoco.mj_forward(self.model, self.data)
 
         return self.get_state()
